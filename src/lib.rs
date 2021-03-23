@@ -1,6 +1,7 @@
 use itertools::Itertools;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt;
+use std::iter::successors;
 
 pub type U36 = u64;
 
@@ -35,21 +36,24 @@ impl Board {
     pub fn has_vision(&self, from: U36) -> bool {
         let Board(bits) = *self;
         let (row, col) = (from / 6, from % 6);
-      
+
         let test = |r: U36, c: U36| bits & (1 << (6 * r + c)) != 0;
-      
-           (0..6).filter(|&r| r != row).any(|r| test(r, col))
-        || (0..6).filter(|&c| c != col).any(|c| test(row, c))
-        || (-5..6)
-           .zip(-5..6)
-           .cartesian_product([-1, 1].iter())
-           .map(|((a, b), &s)| (a, b * s))
-           .filter(|&(p, q)| p != 0 && q != 0
-                          && (0..6).contains(&(row as i64 + p))
-                          && (0..6).contains(&(col as i64 + q)))
-           .any(|(p, q)| test((row as i64 + p) as U36, (col as i64 + q) as U36))
-      }
-      
+
+        (0..6).filter(|&r| r != row).any(|r| test(r, col))
+            || (0..6).filter(|&c| c != col).any(|c| test(row, c))
+            || (-5..6)
+                .zip(-5..6)
+                .cartesian_product([-1, 1].iter())
+                .map(|((a, b), &s)| (a, b * s))
+                .filter(|&(p, q)| {
+                    p != 0
+                        && q != 0
+                        && (0..6).contains(&(row as i64 + p))
+                        && (0..6).contains(&(col as i64 + q))
+                })
+                .any(|(p, q)| test((row as i64 + p) as U36, (col as i64 + q) as U36))
+    }
+
     pub const EMPTY: Self = Board(0);
 }
 
@@ -97,3 +101,29 @@ impl Graph {
             .unwrap_or_default();
     }
 }
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct Node {
+    g: u32,
+    h: u32,
+}
+
+impl 
+
+struct Step<'a> {
+    graph: &'a Graph,
+    open: BinaryHeap<Node>,
+    closed: BinaryHeap<Node>,
+}
+
+pub fn astar(graph: &Graph) -> () { // -> impl Iterator<Step>
+    successors(Some(Step {
+        graph: &graph,
+        open: BinaryHeap::new(),
+        closed: BinaryHeap::new(),
+    }), |step|{
+
+    });
+}
+
+
