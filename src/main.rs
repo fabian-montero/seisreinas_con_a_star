@@ -1,5 +1,5 @@
-use seisreinas2::Board;
+use seisreinas2::Graph;
 
 fn main() {
-    Board::new (0b111111111111111111111111111111111111);
+    println!("{:?}", Graph::valid_boards_from_empty());
 }
