@@ -5,7 +5,7 @@ use std::fmt;
 pub type U36 = u64;
 
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Board(U36);
+pub struct Board(pub U36);
 
 impl Board {
     fn new(bits: U36) -> Self {
@@ -17,7 +17,7 @@ impl Board {
         Board(bits)
     }
 
-    fn count_queens(&self) -> u32 {
+    pub fn count_queens(&self) -> u32 {
         let Board(bits) = &self;
         bits.count_ones()
     }
@@ -32,25 +32,24 @@ impl Board {
         (bits & 1 << pos) != 0b0
     }
 
-    fn has_vision(&self, from: U36) -> bool {
+    pub fn has_vision(&self, from: U36) -> bool {
         let Board(bits) = *self;
         let (row, col) = (from / 6, from % 6);
-
+      
         let test = |r: U36, c: U36| bits & (1 << (6 * r + c)) != 0;
-
-        (0..6).filter(|&r| r != row).any(|r| test(r, col))
-            || (0..6).filter(|&c| c != col).any(|c| test(row, c))
-            || (-5..6)
-                .cartesian_product(-5..6)
-                .filter(|&(p, q)| {
-                    p != 0
-                        && q != 0
-                        && (0..6).contains(&(row as i64 + p))
-                        && (0..6).contains(&(col as i64 + q))
-                })
-                .any(|(p, q)| test((row as i64 + p) as U36, (col as i64 + q) as U36))
-    }
-
+      
+           (0..6).filter(|&r| r != row).any(|r| test(r, col))
+        || (0..6).filter(|&c| c != col).any(|c| test(row, c))
+        || (-5..6)
+           .zip(-5..6)
+           .cartesian_product([-1, 1].iter())
+           .map(|((a, b), &s)| (a, b * s))
+           .filter(|&(p, q)| p != 0 && q != 0
+                          && (0..6).contains(&(row as i64 + p))
+                          && (0..6).contains(&(col as i64 + q)))
+           .any(|(p, q)| test((row as i64 + p) as U36, (col as i64 + q) as U36))
+      }
+      
     pub const EMPTY: Self = Board(0);
 }
 
@@ -61,13 +60,13 @@ impl fmt::Debug for Board {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-struct Edge {
-    from: Board,
-    to: Board,
+pub struct Edge {
+    pub from: Board,
+    pub to: Board,
 }
 
 #[derive(Debug)]
-pub struct Graph(BTreeSet<Edge>);
+pub struct Graph(pub BTreeSet<Edge>);
 
 impl Graph {
     pub fn valid_boards_from_empty() -> Self {
