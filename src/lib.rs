@@ -1,27 +1,36 @@
 #![feature(binary_heap_retain, bool_to_option)]
 
 use itertools::Itertools;
-use std::{cmp, collections::{BTreeSet, BinaryHeap, HashSet}, fmt};
+use std::{
+    cmp,
+    collections::{BTreeSet, BinaryHeap, HashSet},
+    fmt,
+};
 
 pub type U36 = u64;
 
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct Board(pub U36);
+pub struct Board(U36);
 
 impl Board {
-    pub fn count_queens(&self) -> u32 {
-        let Board(bits) = &self;
+    pub const EMPTY: Self = Board(0);
+
+    pub fn count_queens(self) -> u32 {
+        let Board(bits) = self;
         bits.count_ones()
     }
 
-    fn place_queen(&self, pos: U36) -> Self {
-        let Board(bits) = &self;
-        Board(bits | 1 << pos)
+    pub fn penalty(self) -> u32 {
+        (self.0 ^ (self.0 >> 1)).count_zeros()
     }
 
-    fn has_queen_at(&self, pos: U36) -> bool {
-        let Board(bits) = &self;
-        (bits & 1 << pos) != 0b0
+    pub fn bits(self) -> [bool; 36] {
+        let mut bits = [false; 36];
+        for i in 0..36 {
+            bits[i] = self.0 & (1 << (36 - i - 1)) != 0;
+        }
+
+        bits
     }
 
     pub fn has_vision(&self, from: U36) -> bool {
@@ -45,12 +54,27 @@ impl Board {
                 .any(|(p, q)| test((row as i64 + p) as U36, (col as i64 + q) as U36))
     }
 
-    pub const EMPTY: Self = Board(0);
+    fn place_queen(&self, pos: U36) -> Self {
+        let Board(bits) = &self;
+        Board(bits | 1 << pos)
+    }
+
+    fn has_queen_at(&self, pos: U36) -> bool {
+        let Board(bits) = &self;
+        (bits & (1 << pos)) != 0b0
+    }
+}
+
+impl fmt::Display for Board {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:036b}", self.0)
+    }
 }
 
 impl fmt::Debug for Board {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:036b}", self.0)
+        let &Board(board) = self;
+        write!(f, "{}", board)
     }
 }
 
@@ -110,11 +134,29 @@ impl Graph {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-struct Node {
+pub struct Node {
     board: Board,
     parent: Option<Board>,
     g: u32,
     h: u32,
+}
+
+impl Node {
+    pub fn board(&self) -> Board {
+        self.board
+    }
+
+    pub fn f(&self) -> u32 {
+        self.g + self.h
+    }
+
+    pub fn g(&self) -> u32 {
+        self.g
+    }
+
+    pub fn h(&self) -> u32 {
+        self.h
+    }
 }
 
 impl PartialOrd for Node {
@@ -138,44 +180,51 @@ pub struct Step<'a> {
 }
 
 impl Step<'_> {
-    pub fn traceback(&self) -> Vec<Board> {
-        let mut path: Vec<_> = std::iter::successors(
-            Some(self.current),
-            |&board| {
-                let is_target = |node: &&Node| node.board == board;
-                self.closed.iter().find(is_target)
-                    .or_else(|| self.open.iter().find(is_target))
-                    .and_then(|node| node.parent)
-            }
-        ).collect();
+    pub fn current(&self) -> Board {
+        self.current
+    }
+
+    pub fn clone_open_sorted(&self) -> Vec<Node> {
+        let mut open = self.open.clone().into_sorted_vec();
+        open.reverse();
+        open
+    }
+
+    pub fn closed(&self) -> impl Iterator<Item = &Node> {
+        self.closed.iter()
+    }
+
+    pub fn traceback(&self, to: Board) -> (u32, Vec<Board>) {
+        let node_for = |board| {
+            let is_target = |node: &&Node| node.board == board;
+
+            self.closed
+                .iter()
+                .find(is_target)
+                .or_else(|| self.open.iter().find(is_target))
+        };
+
+        let mut path = std::iter::successors(Some(to), |&board| {
+            node_for(board).and_then(|node| node.parent)
+        })
+        .collect::<Vec<_>>();
 
         path.reverse();
-        path
+        (node_for(to).unwrap().g, path)
     }
 }
 
 impl fmt::Debug for Step<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "[{:?}]", self.current)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Current board: {}\nOpen set: {:?}\nClosed set: {:?}\n",
+            self.current, self.open, self.closed
+        )
     }
 }
 
 pub fn a_star<'a>(graph: &'a Graph) -> impl 'a + Iterator<Item = Step> {
-    let mut open = BinaryHeap::new();
-    open.push(Node {
-        parent: None,
-        board: Board::EMPTY,
-        g: 0,
-        h: 6,
-    });
-
-    let initial_state = Some(Step {
-        current: Board::EMPTY,
-        graph,
-        open,
-        closed: HashSet::new(),
-    });
-
     let do_step = move |step: &Step<'a>| {
         (step.current.count_queens() < 6).then_some(())?;
         let mut step = step.clone();
@@ -185,24 +234,32 @@ pub fn a_star<'a>(graph: &'a Graph) -> impl 'a + Iterator<Item = Step> {
 
         step.closed.insert(curr);
         for neighbor_board in step.graph.reachable_from(curr.board) {
-            let cost = curr.g + 1;
+            let cost = curr.g + 36;
 
             let (mut in_open, mut in_closed, mut neighbor) = {
                 let is_neighbor = |node: &&Node| node.board == neighbor_board;
-                step.open.iter().find(is_neighbor)
+                step.open
+                    .iter()
+                    .find(is_neighbor)
                     .map(|&node| (true, false, node))
                     .or_else(|| {
-                        step.closed.iter().find(is_neighbor)
+                        step.closed
+                            .iter()
+                            .find(is_neighbor)
                             .map(|&node| (false, true, node))
                     })
-                .unwrap_or_else(|| {
-                    (false, false, Node {
-                        board: neighbor_board,
-                        parent: Some(curr.board),
-                        g: cost,
-                        h: 6 - neighbor_board.count_queens(),
+                    .unwrap_or_else(|| {
+                        (
+                            false,
+                            false,
+                            Node {
+                                board: neighbor_board,
+                                parent: Some(curr.board),
+                                g: cost,
+                                h: neighbor_board.penalty() * (6 - neighbor_board.count_queens()),
+                            },
+                        )
                     })
-                })
             };
 
             if cost < neighbor.g {
@@ -223,9 +280,23 @@ pub fn a_star<'a>(graph: &'a Graph) -> impl 'a + Iterator<Item = Step> {
                 step.open.push(neighbor);
             }
         }
-
         Some(step)
     };
 
-    std::iter::successors(initial_state, do_step)
+    let mut open = BinaryHeap::new();
+    open.push(Node {
+        parent: None,
+        board: Board::EMPTY,
+        g: 0,
+        h: 36 * (6 - 0),
+    });
+
+    let initial = Step {
+        current: Board::EMPTY,
+        graph,
+        open,
+        closed: HashSet::new(),
+    };
+
+    std::iter::successors(Some(initial), do_step).fuse()
 }
